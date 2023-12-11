@@ -1,0 +1,241 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Fri Jun  9 16:34:46 2023
+
+@author: 27261
+"""
+import numpy as np
+import pandas as pd
+# import matplotlib.pyplot as plt
+import peakutils
+# import pickle5 as pickle
+import pickle as pickle
+# import itertools
+import time as time
+
+def data_from_exp_spectrum(dict_data_emission):
+    global end_work
+    journal=dict_data_emission['journal']
+    journal=journal+[str('Обработка экспериментальных спектров :')]
+    dict_data_emission['journal']=journal
+    def work_with_exp_spectrum(file):
+        tstart=time.time()
+        def get_exp_data(file):
+            pd_file=pd.read_csv(file, sep="\s+",header=None, 
+            names=['A', 'B'], skiprows=1)
+            xdata=np.array(pd_file['A'])
+            ydata=np.array(pd_file['B'])
+            return xdata,ydata
+                                                                               
+        def construct_baseline_with_noise(xdata,ydata):
+            baseline_values=peakutils.baseline(ydata)
+            noise=np.random.normal(50, 10, xdata.shape[0])
+            signal=baseline_values+noise
+            return signal
+                                                                               
+        def convert_index_lines_to_lines(xdata,ydata,signal):
+            index_lines=[np.where(ydata>=1.2*signal)]
+            print('')
+            index_lines=index_lines[0][0]
+            number_index=1
+            dict_with_lines=dict({})
+            idx_lines=[index_lines[0]]
+            while number_index<=(len(index_lines)-1):
+                if index_lines[number_index]-index_lines[number_index-1]==1:
+                    idx_lines=idx_lines+[index_lines[number_index]]
+                    new_index=number_index+1
+                else:
+                    dict_with_lines[str(number_index)]=idx_lines
+                    idx_lines=[index_lines[number_index]]
+                    new_index=number_index+1
+                number_index=new_index
+            keys_in_dict_with_lines=list((*dict_with_lines,))
+            i_k=0
+            exp_lines=dict({})
+            while i_k<=(len(keys_in_dict_with_lines)-1):
+                if len(dict_with_lines[str(keys_in_dict_with_lines[i_k])])>1:
+                    line=dict_with_lines[str(keys_in_dict_with_lines[i_k])]
+                    exp_lines[str(i_k)]=[np.round(xdata[len(line)-1],2),np.round(xdata[line[0]],2),
+                                          np.round(ydata[len(line)-1],2),np.round(ydata[line[0]],2)]
+                else:
+                    exp_lines=exp_lines
+                i_k+=1
+            return exp_lines
+                                                                               
+        def control_function_for_exp_spectrum(file):
+            journal=dict_data_emission['journal']
+            xdata,ydata=get_exp_data(file)
+            journal=journal+[str('Получение матрицы значений X и Y для экспериментального спектра : ОК')]
+            dict_data_emission['journal']=journal
+            signal=construct_baseline_with_noise(xdata,ydata)
+            journal=dict_data_emission['journal']
+            journal=journal+[str('Формирование базовой линии с шумом для экспериментального спектра : ОК')]
+            dict_data_emission['journal']=journal
+            dict_with_lines=convert_index_lines_to_lines(xdata,ydata,signal)
+            journal=dict_data_emission['journal']
+            journal=journal+[str('Определение линий в экспериментальном спектре : ОК')]
+            dict_data_emission['journal']=journal
+            return dict_with_lines,xdata,ydata
+        dict_with_lines,xdata,ydata=control_function_for_exp_spectrum(file)
+        tend=time.time()
+        print('')
+        print('время работы с экспериментальным спектром = ',np.round(tend-tstart,2))
+        return dict_with_lines,xdata,ydata
+                                                                               
+    def get_lines_elements_in_exp_lines(dict_with_lines,dict_data_emission,xdata,ydata):
+        tstart=time.time()
+        def get_line_element_in_exp_line(element,exp_line):
+            x0_position_line=exp_line[0]
+            x1_position_line=exp_line[1]
+            positions_lines_element=element['position']
+            index_lines_element_in_exp_line=np.where((positions_lines_element>=x0_position_line) & (positions_lines_element<=x1_position_line))
+            # index_lines_element_in_exp_line=index_lines_element_in_exp_line[0]
+            index=index_lines_element_in_exp_line[0]
+            positions_lines_element_new=list(positions_lines_element)
+            # index_lines_element_in_exp_line=np.where((positions_lines_element>=x0_position_line) & (positions_lines_element<=x1_position_line))
+            # index=index_lines_element_in_exp_line[0]
+            i=0
+            list_position=[]
+####  выделение из atomtrace списка линий которые лежат внутри границ экспериментальной линии :
+            while i<=(len(index)-1):
+                list_position.append(positions_lines_element_new[index[i]])
+                i+=1
+#### выделение из экспериментального спектра списка элементов с экспериментальной линией :
+            index_exp_line=np.where((xdata>=x0_position_line) & (xdata<=x1_position_line))
+            index_exp_line=index_exp_line[0]
+            
+            i_exp=0
+            exp_position=[]
+            exp_intensive=[]
+            while i_exp<=(len(index_exp_line)-1):
+                exp_position.append(xdata[index_exp_line[i_exp]])
+                exp_intensive.append(ydata[index_exp_line[i_exp]])
+                i_exp+=1
+            i_list_position=0
+            all_index=[]
+            intensive=[]
+            if len(list_position)!=0:
+                while i_list_position<=(len(list_position)-1):
+                    lposition=[list_position[i_list_position]]*len(exp_position)
+                    point=np.abs((np.array(lposition)-np.array(exp_position)))
+                    if len(point)!=0:
+                        index_min_point=np.nanargmin(point)
+                        all_index=all_index+[index_min_point]
+                        intensive.append(exp_intensive[index_min_point])
+                    else:
+                        intensive=intensive
+                    i_list_position+=1
+                if len(intensive)!=0:
+                    max_line=np.max(intensive)
+                    np_intensive=np.array(intensive)
+                    index_max_r=np_intensive.argmax()
+                    position_lines_element=exp_position[all_index[index_max_r]]
+                else:
+                    max_line=np.nan
+                    position_lines_element=np.nan
+            else:
+                position_lines_element=np.nan
+                max_line=np.nan
+            return position_lines_element,max_line
+                                                                                
+                                                                                          
+        list_intensivity=[]
+        list_for_elements=[]
+        pd_table=pd.DataFrame()
+        list_elements=dict_data_emission['list_elements']
+        N_lines=list((*dict_with_lines,))
+        i_N=0
+        journal=dict_data_emission['journal']
+        while i_N<=(len(N_lines)-1):
+            exp_line=dict_with_lines[N_lines[i_N]]
+            i_elements=0
+            journal=journal+[str('Линия : ')+str('№')+str(N_lines[i_N])]
+            dict_data_emission['journal']=journal
+            while i_elements<=(len(list_elements)-1):
+                # print('')
+                # print('Нахождение линий для элемента : ',str(list_elements[i_elements]))
+                element=dict_data_emission[str(list_elements[i_elements])]
+                journal=journal+[str('Нахождение линий для элемента : ')+str(list_elements[i_elements])]
+                dict_data_emission['journal']=journal
+                position_lines_element,max_line=get_line_element_in_exp_line(element,exp_line)
+                if [position_lines_element,max_line] in list_for_elements:
+                    list_for_elements=list_for_elements
+                else:
+                    list_for_elements.append([str(list_elements[i_elements]),position_lines_element,max_line])
+                    list_intensivity=list_intensivity+[max_line]
+                i_elements+=1
+            i_N+=1
+                                                                                        
+        pd_table=pd.DataFrame(list_for_elements,columns=['element','position','intensive'])
+        tend=time.time()
+        print('')
+        print('время работы с экспериментальной линией = ',np.round(tend-tstart,2))
+        return pd_table
+                                                                               
+    def find_max_intensive_for_each_elements(full_pd_table):
+        final_pd_table=full_pd_table.groupby(pd.Grouper(key='element')).max()
+        return final_pd_table
+    
+    def find_max_intensive_in_spectra(pd_table):return np.max(pd_table['intensive'])
+                                                                                        
+    def work_with_each_exp_spectr(dict_data_emission):
+        global end_work
+        files=dict_data_emission['files']
+        dict_data_emission['end_work']=[]
+        i_f=0
+        full_pd_table=pd.DataFrame()
+        journal=dict_data_emission['journal']
+        max_intensive=[]
+        t=0
+        while i_f<=(len(files)-1): ####  (len(files)-16): #### (len(files)-1): #### (len(files)-27): #### 
+            print('')
+            print('file : ',files[i_f])
+            journal=journal+[str('Файл : ')+str(files[i_f])]
+            dict_data_emission['journal']=journal
+            tstart=time.time()
+            dict_with_lines,xdata,ydata=work_with_exp_spectrum(files[i_f])
+            pd_table=get_lines_elements_in_exp_lines(dict_with_lines,dict_data_emission,xdata,ydata)
+            maxI=find_max_intensive_in_spectra(pd_table)
+            max_intensive.append(maxI) ### нашли максимальную интенсивность в куске и
+#### добавили в общий лист , добавив для каждого куска максимальную интенсивность 
+#### найдем максимальную интенсивность , вообще , во всем спектре !!!
+            tend=time.time()
+            print('')
+            print('время работы с файлом = ', np.round(tend-tstart,2))
+            t=t+np.round(tend-tstart,2)
+            if i_f==0:
+                full_pd_table=pd_table
+            else:
+                full_pd_table=pd.concat([full_pd_table,pd_table],axis=0)
+            if i_f<len(files):
+                end_work=0
+            else:
+                end_work=1
+            # print('')
+            # print(str('full_pd_table')+str(' Файл : ')+str(files[i_f]))
+            # print('')
+            # print(full_pd_table)
+            i_f+=1
+        print('')
+        print('tfull = ',t)
+        print('')
+        print(full_pd_table)
+        print('')
+        print('max_intensive : ',max_intensive)
+        final_pd_table=find_max_intensive_for_each_elements(full_pd_table)
+        dict_data_emission['full_table_elements']=[]
+        dict_data_emission['full_table_elements']=final_pd_table
+        print('')
+        print('final full_pd_table')
+        print('')
+        print(full_pd_table)
+        dict_data_emission['max_intensive']=[]
+        dict_data_emission['max_intensive']=np.nanmax(max_intensive) ### full_pd_table
+        return dict_data_emission
+    dict_data_emission=work_with_each_exp_spectr(dict_data_emission)
+    return dict_data_emission
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
